@@ -1,48 +1,57 @@
 from flask import Flask, render_template, request, jsonify
-import os
-import logging
 from polygon import RESTClient
 from datetime import datetime, timedelta
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG,  # Set to DEBUG for detailed output
-                    format='%(asctime)s [%(levelname)s] %(message)s',
-                    handlers=[logging.StreamHandler()])  # Output logs to the console
-
 app = Flask(__name__)
 
-# Replace with your Polygon.io API key
 POLYGON_API_KEY = "rfyFIj2sCGjr8RhHOU5zgS6Hb7lTGl2p"
 client = RESTClient(POLYGON_API_KEY)
 
 @app.route('/')
 def index():
-    app.logger.info("Rendering index page.")
     return render_template('index.html')
 
 @app.route('/api/stock/<symbol>')
 def get_stock_data(symbol):
     try:
-        app.logger.debug(f"Received request for stock data: {symbol}")
+        # Get time range from query parameter
+        time_range = request.args.get('range', '1W')  # Default to 1 week
         
-        # Get today's date and yesterday's date
         end_date = datetime.now()
-        start_date = end_date - timedelta(days=7)
-        app.logger.debug(f"Date range: {start_date} to {end_date}")
+        
+        # Calculate start date based on time range
+        if time_range == '1D':
+            start_date = end_date - timedelta(days=1)
+            multiplier = 5  # 5-minute intervals
+            timespan = "minute"
+        elif time_range == '1W':
+            start_date = end_date - timedelta(weeks=1)
+            multiplier = 1
+            timespan = "day"
+        elif time_range == '1M':
+            start_date = end_date - timedelta(days=30)
+            multiplier = 1
+            timespan = "day"
+        elif time_range == '1Y':
+            start_date = end_date - timedelta(days=365)
+            multiplier = 1
+            timespan = "day"
+        else:  # All time (max 5 years)
+            start_date = end_date - timedelta(days=365*5)
+            multiplier = 1
+            timespan = "week"
         
         # Fetch aggregates for the date range
         aggs = client.get_aggs(
             symbol,
-            1,
-            "day",
+            multiplier,
+            timespan,
             start_date.strftime("%Y-%m-%d"),
             end_date.strftime("%Y-%m-%d")
         )
-        app.logger.debug(f"Aggregates data fetched: {len(aggs)} entries.")
         
         # Fetch company details
         ticker_details = client.get_ticker_details(symbol)
-        app.logger.debug(f"Company details fetched: {ticker_details.name}")
         
         # Prepare response
         response = {
@@ -58,13 +67,10 @@ def get_stock_data(symbol):
                 }
             }
         }
-        app.logger.info(f"Response prepared successfully for symbol: {symbol}")
         return jsonify(response)
     
     except Exception as e:
-        app.logger.error(f"Error while fetching stock data for {symbol}: {e}")
         return jsonify({"success": False, "error": str(e)})
 
 if __name__ == '__main__':
-    app.logger.info("Starting Flask application.")
     app.run(debug=True)

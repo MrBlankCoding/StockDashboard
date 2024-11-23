@@ -1,180 +1,300 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
    <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Stock Tracker</title>
       <script src="https://cdn.tailwindcss.com"></script>
+      <script>
+         tailwind.config = {
+           darkMode: 'class'
+         }
+      </script>
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
       <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
       <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
       <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
    </head>
-   <body class="bg-gray-100 dark:bg-gray-900 transition-colors duration-200">
+   <body>
       <div id="root"></div>
       <script type="text/babel">
          const { useState, useEffect, useCallback, useRef } = React;
-         
+
          function DarkModeToggle() {
+             const [isDark, setIsDark] = useState(() => 
+                 document.documentElement.classList.contains('dark')
+             );
+
              const toggleDarkMode = () => {
-                 const html = document.documentElement;
-                 html.classList.toggle('dark');
-                 localStorage.setItem('darkMode', html.classList.contains('dark'));
+                 const newDarkMode = !isDark;
+                 setIsDark(newDarkMode);
+                 document.documentElement.classList.toggle('dark');
+                 localStorage.setItem('darkMode', newDarkMode);
              };
-         
+
+             useEffect(() => {
+                 const savedDarkMode = localStorage.getItem('darkMode') === 'true';
+                 setIsDark(savedDarkMode);
+                 document.documentElement.classList.toggle('dark', savedDarkMode);
+             }, []);
+
              return (
-                 <button onClick={toggleDarkMode} className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700">
-                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-800 dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                     </svg>
+                 <button 
+                     onClick={toggleDarkMode} 
+                     className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 transition-colors"
+                     aria-label="Toggle dark mode"
+                 >
+                     {isDark ? (
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-800 dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                         </svg>
+                     ) : (
+                         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-800 dark:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                         </svg>
+                     )}
                  </button>
              );
          }
-         
+
+         function LoadingSpinner() {
+             return (
+                 <div className="flex items-center justify-center">
+                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                 </div>
+             );
+         }
+
+         function TimeRangeSelector({ selectedRange, onRangeChange }) {
+             const ranges = ['1D', '1W', '1M', '1Y', 'ALL'];
+             
+             return (
+                 <div className="flex gap-2 mb-4">
+                     {ranges.map(range => (
+                         <button
+                             key={range}
+                             onClick={() => onRangeChange(range)}
+                             className={`px-3 py-1 rounded-lg transition-colors ${
+                                 selectedRange === range
+                                     ? 'bg-blue-500 text-white'
+                                     : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                             }`}
+                         >
+                             {range}
+                         </button>
+                     ))}
+                 </div>
+             );
+         }
+
          function StockForm({ onAddStock }) {
              const [symbol, setSymbol] = useState('');
-         
+             const [error, setError] = useState('');
+
              const handleSubmit = (e) => {
                  e.preventDefault();
-                 if (symbol) {
-                     onAddStock(symbol.toUpperCase());
-                     setSymbol('');
+                 if (!symbol) {
+                     setError('Please enter a stock symbol');
+                     return;
                  }
+                 onAddStock(symbol.toUpperCase());
+                 setSymbol('');
+                 setError('');
              };
-         
+
              return (
-                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
-                     <form onSubmit={handleSubmit} className="flex gap-4">
-                         <input
-                             type="text"
-                             value={symbol}
-                             onChange={(e) => setSymbol(e.target.value)}
-                             placeholder="Enter stock symbol (e.g., AAPL)"
-                             className="flex-1 p-2 border rounded-lg dark:bg-gray-700 dark:text-white dark:border-gray-600"
-                         />
-                         <button
-                             type="submit"
-                             className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors"
-                         >
-                             Add Stock
-                         </button>
+                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-8 transition-colors">
+                     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                         <div className="flex gap-4">
+                             <input
+                                 type="text"
+                                 value={symbol}
+                                 onChange={(e) => setSymbol(e.target.value)}
+                                 placeholder="Enter stock symbol (e.g., AAPL)"
+                                 className="flex-1 p-2 border rounded-lg dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                             />
+                             <button
+                                 type="submit"
+                                 className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition-colors focus:ring-2 focus:ring-blue-300"
+                             >
+                                 Add Stock
+                             </button>
+                         </div>
+                         {error && (
+                             <p className="text-red-500 text-sm">{error}</p>
+                         )}
                      </form>
                  </div>
              );
          }
-         
-         function StockCard({ symbol, onRemove }) {
+
+         function StockChart({ data, timeRange, height }) {
              const chartRef = useRef(null);
              const chartInstance = useRef(null);
-             const [stockData, setStockData] = useState(null);
-             const [isLoading, setIsLoading] = useState(true);
-         
-             const createChart = useCallback((data) => {
-                 if (chartRef.current) {
-                     // Destroy existing chart if it exists
-                     if (chartInstance.current) {
-                         chartInstance.current.destroy();
-                     }
-         
-                     const ctx = chartRef.current.getContext('2d');
-                     chartInstance.current = new Chart(ctx, {
-                         type: 'line',
-                         data: {
-                             labels: data.aggs.map(agg => 
-                                 new Date(agg.date).toLocaleDateString()),
-                             datasets: [{
-                                 label: 'Price',
-                                 data: data.aggs.map(agg => agg.close),
-                                 borderColor: '#3B82F6',
-                                 tension: 0.1
-                             }]
+             const isDark = document.documentElement.classList.contains('dark');
+
+             const createChart = useCallback(() => {
+                 if (!chartRef.current || !data?.aggs?.length) return;
+
+                 if (chartInstance.current) {
+                     chartInstance.current.destroy();
+                 }
+
+                 const ctx = chartRef.current.getContext('2d');
+                 
+                 chartInstance.current = new Chart(ctx, {
+                     type: 'line',
+                     data: {
+                         labels: data.aggs.map(agg => {
+                             const date = new Date(agg.date);
+                             if (timeRange === '1D') {
+                                 return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                             } else if (timeRange === 'ALL') {
+                                 return date.toLocaleDateString([], { year: 'numeric', month: 'short' });
+                             } else {
+                                 return date.toLocaleDateString();
+                             }
+                         }),
+                         datasets: [{
+                             label: 'Price',
+                             data: data.aggs.map(agg => agg.close),
+                             borderColor: '#3B82F6',
+                             backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                             fill: true,
+                             tension: 0.4
+                         }]
+                     },
+                     options: {
+                         responsive: true,
+                         maintainAspectRatio: false,
+                         interaction: {
+                             intersect: false,
+                             mode: 'index'
                          },
-                         options: {
-                             responsive: true,
-                             maintainAspectRatio: false,
-                             plugins: {
-                                 legend: {
-                                     display: false
+                         plugins: {
+                             legend: {
+                                 display: false
+                             },
+                             tooltip: {
+                                 backgroundColor: isDark ? '#374151' : 'white',
+                                 titleColor: isDark ? 'white' : 'black',
+                                 bodyColor: isDark ? 'white' : 'black',
+                                 borderColor: isDark ? '#4B5563' : '#E5E7EB',
+                                 borderWidth: 1
+                             }
+                         },
+                         scales: {
+                             y: {
+                                 ticks: {
+                                     color: isDark ? '#D1D5DB' : '#374151'
+                                 },
+                                 grid: {
+                                     color: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
                                  }
                              },
-                             scales: {
-                                 y: {
-                                     ticks: {
-                                         color: document.documentElement.classList.contains('dark') ? '#fff' : '#374151'
-                                     }
+                             x: {
+                                 ticks: {
+                                     color: isDark ? '#D1D5DB' : '#374151',
+                                     maxRotation: 45,
+                                     minRotation: 45
                                  },
-                                 x: {
-                                     ticks: {
-                                         color: document.documentElement.classList.contains('dark') ? '#fff' : '#374151'
-                                     }
+                                 grid: {
+                                     color: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
                                  }
                              }
                          }
-                     });
-                 }
-             }, []);
-         
-             const fetchStockData = useCallback(async () => {
-                 try {
-                     setIsLoading(true);
-                     const response = await fetch(`/api/stock/${symbol}`);
-                     const data = await response.json();
-                     
-                     if (data.success) {
-                         setStockData(data.data);
-                         // Wait for next render cycle before creating chart
-                         setTimeout(() => {
-                             createChart(data.data);
-                             setIsLoading(false);
-                         }, 0);
                      }
-                 } catch (error) {
-                     console.error('Error fetching stock data:', error);
-                     setIsLoading(false);
-                 }
-             }, [symbol, createChart]);
-         
+                 });
+             }, [data, timeRange, isDark]);
+
              useEffect(() => {
-                 fetchStockData();
-                 const interval = setInterval(fetchStockData, 60000);
-                 return () => {
-                     clearInterval(interval);
-                     if (chartInstance.current) {
-                         chartInstance.current.destroy();
-                     }
-                 };
-             }, [fetchStockData]);
-         
-             // Handle dark mode changes
-             useEffect(() => {
+                 createChart();
+                 
+                 // Add observer for dark mode changes
                  const observer = new MutationObserver((mutations) => {
                      mutations.forEach((mutation) => {
-                         if (mutation.attributeName === 'class' && stockData) {
-                             createChart(stockData);
+                         if (mutation.attributeName === 'class') {
+                             createChart();
                          }
                      });
                  });
-         
+                 
                  observer.observe(document.documentElement, {
                      attributes: true,
                      attributeFilter: ['class']
                  });
-         
-                 return () => observer.disconnect();
-             }, [createChart, stockData]);
-         
-             if (!stockData) {
+
+                 return () => {
+                     if (chartInstance.current) {
+                         chartInstance.current.destroy();
+                     }
+                     observer.disconnect();
+                 };
+             }, [createChart]);
+
+             return (
+                <div className="relative">
+                    <canvas ref={chartRef}></canvas>
+                </div>
+            );
+            
+         }
+
+         function StockCard({ symbol, onRemove }) {
+             const [stockData, setStockData] = useState(null);
+             const [isLoading, setIsLoading] = useState(true);
+             const [timeRange, setTimeRange] = useState('1W');
+             const [error, setError] = useState(null);
+
+             const fetchStockData = useCallback(async () => {
+                 try {
+                     setIsLoading(true);
+                     setError(null);
+                     const response = await fetch(`/api/stock/${symbol}?range=${timeRange}`);
+                     const data = await response.json();
+                     
+                     if (data.success) {
+                         setStockData(data.data);
+                     } else {
+                         setError(data.error || 'Failed to fetch stock data');
+                     }
+                 } catch (error) {
+                     setError('An error occurred while fetching stock data');
+                     console.error('Error fetching stock data:', error);
+                 } finally {
+                     setIsLoading(false);
+                 }
+             }, [symbol, timeRange]);
+
+             useEffect(() => {
+                 fetchStockData();
+                 const interval = setInterval(fetchStockData, 60000);
+                 return () => clearInterval(interval);
+             }, [fetchStockData]);
+
+             if (error) {
                  return (
-                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 min-h-[400px] flex items-center justify-center">
-                         <div className="text-gray-600 dark:text-gray-400">Loading...</div>
+                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-colors">
+                         <div className="text-red-500 text-center">{error}</div>
                      </div>
                  );
              }
-         
+
+             if (!stockData) {
+                 return (
+                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 min-h-[400px] flex items-center justify-center transition-colors">
+                         <LoadingSpinner />
+                     </div>
+                 );
+             }
+
              const latestData = stockData.aggs[stockData.aggs.length - 1];
-         
+             const firstData = stockData.aggs[0];
+             const priceChange = latestData.close - firstData.close;
+             const priceChangePercent = (priceChange / firstData.close) * 100;
+
              return (
-                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 transition-colors">
                      <div className="flex justify-between items-start mb-4">
                          <div>
                              <h2 className="text-xl font-bold text-gray-800 dark:text-white">{symbol}</h2>
@@ -182,90 +302,135 @@
                          </div>
                          <button
                              onClick={onRemove}
-                             className="text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400"
+                             className="text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors"
+                             aria-label="Remove stock"
                          >
                              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                              </svg>
                          </button>
                      </div>
-                     <div className="relative h-[200px] mb-4">
-                         {isLoading ? (
-                             <div className="absolute inset-0 flex items-center justify-center">
-                                 <div className="text-gray-600 dark:text-gray-400">Loading chart...</div>
-                             </div>
-                         ) : (
-                             <canvas ref={chartRef} height="200"></canvas>
-                         )}
-                     </div>
-                     <div className="grid grid-cols-2 gap-4">
-                         <div className="text-center">
-                             <p className="text-gray-600 dark:text-gray-400">Current Price</p>
+
+                     <TimeRangeSelector
+                         selectedRange={timeRange}
+                         onRangeChange={setTimeRange}
+                     />
+
+                     {isLoading ? (
+                         <div className="h-[200px] flex items-center justify-center">
+                             <LoadingSpinner />
+                         </div>
+                     ) : (
+                         <StockChart
+                             data={stockData}
+                             timeRange={timeRange}
+                             height={200}
+                         />
+                     )}
+
+                     <div className="grid grid-cols-3 gap-4 mt-4">
+                         <div className="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg transition-colors">
+                             <p className="text-gray-600 dark:text-gray-400 text-sm">Current Price</p>
                              <p className="text-lg font-bold text-gray-800 dark:text-white">
                                  ${latestData.close.toFixed(2)}
                              </p>
                          </div>
-                         <div className="text-center">
-                             <p className="text-gray-600 dark:text-gray-400">Volume</p>
-                             <p className="text-lg font-bold text-gray-800 dark:text-white">
-                                 {latestData.volume.toLocaleString()}
-                             </p>
-                         </div>
-                     </div>
-                 </div>
-             );
-         }
-         
-         function App() {
-             const [stocks, setStocks] = useState(() => {
-                 const saved = localStorage.getItem('trackedStocks');
-                 return saved ? JSON.parse(saved) : [];
-             });
-         
-             useEffect(() => {
-                 if (localStorage.getItem('darkMode') === 'true') {
-                     document.documentElement.classList.add('dark');
-                 }
-             }, []);
-         
-             useEffect(() => {
-                 localStorage.setItem('trackedStocks', JSON.stringify(stocks));
-             }, [stocks]);
-         
-             const addStock = (symbol) => {
-                 if (!stocks.includes(symbol)) {
-                     setStocks([...stocks, symbol]);
-                 }
-             };
-         
-             const removeStock = (symbolToRemove) => {
-                 setStocks(stocks.filter(symbol => symbol !== symbolToRemove));
-             };
-         
-             return (
-                 <div className="container mx-auto px-4 py-8">
-                     <div className="flex justify-between items-center mb-8">
-                         <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Stock Tracker</h1>
-                         <DarkModeToggle />
-                     </div>
-         
-                     <StockForm onAddStock={addStock} />
-         
-                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                         {stocks.map(symbol => (
-                             <StockCard
-                                 key={symbol}
-                                 symbol={symbol}
-                                 onRemove={() => removeStock(symbol)}
-                             />
-                         ))}
-                     </div>
-                 </div>
-             );
-         }
-         
-         const root = ReactDOM.createRoot(document.getElementById('root'));
-         root.render(<App />);
-      </script>
-   </body>
+                         <div className="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg transition-colors">
+                             <p className="text-gray-600 dark:text-gray-400 text-sm">Change</p>
+                             <p className={`text-lg font-bold ${
+                                priceChange >= 0 ? 'text-green-500' : 'text-red-500'
+                            }`}>
+                                {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(2)} ({priceChangePercent.toFixed(2)}%)
+                            </p>
+                        </div>
+                        <div className="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg transition-colors">
+                           <p className="text-gray-600 dark:text-gray-400 text-sm">Volume</p>
+                           <p className="text-lg font-bold text-gray-800 dark:text-white">
+                               {latestData.volume.toLocaleString()}
+                           </p>
+                       </div>
+                   </div>
+               </div>
+           );
+       }
+
+       function EmptyState() {
+           return (
+               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8 text-center">
+                   <svg 
+                       className="mx-auto h-12 w-12 text-gray-400"
+                       fill="none"
+                       viewBox="0 0 24 24"
+                       stroke="currentColor"
+                       aria-hidden="true"
+                   >
+                       <path
+                           strokeLinecap="round"
+                           strokeLinejoin="round"
+                           strokeWidth="2"
+                           d="M13 10V3L4 14h7v7l9-11h-7z"
+                       />
+                   </svg>
+                   <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No stocks</h3>
+                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                       Get started by adding a stock symbol above.
+                   </p>
+               </div>
+           );
+       }
+
+       function App() {
+           const [stocks, setStocks] = useState(() => {
+               const saved = localStorage.getItem('trackedStocks');
+               return saved ? JSON.parse(saved) : [];
+           });
+
+           useEffect(() => {
+               localStorage.setItem('trackedStocks', JSON.stringify(stocks));
+           }, [stocks]);
+
+           const addStock = (symbol) => {
+               if (!stocks.includes(symbol)) {
+                   setStocks([...stocks, symbol]);
+               }
+           };
+
+           const removeStock = (symbolToRemove) => {
+               setStocks(stocks.filter(symbol => symbol !== symbolToRemove));
+           };
+
+           return (
+               <div className="min-h-screen bg-gray-100 dark:bg-gray-900 transition-colors">
+                   <div className="container mx-auto px-4 py-8">
+                       <div className="flex justify-between items-center mb-8">
+                           <h1 className="text-3xl font-bold text-gray-800 dark:text-white">
+                               Stock Tracker
+                           </h1>
+                           <DarkModeToggle />
+                       </div>
+
+                       <StockForm onAddStock={addStock} />
+
+                       {stocks.length === 0 ? (
+                           <EmptyState />
+                       ) : (
+                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                               {stocks.map(symbol => (
+                                   <StockCard
+                                       key={symbol}
+                                       symbol={symbol}
+                                       onRemove={() => removeStock(symbol)}
+                                   />
+                               ))}
+                           </div>
+                       )}
+                   </div>
+               </div>
+           );
+       }
+
+       const root = ReactDOM.createRoot(document.getElementById('root'));
+       root.render(<App />);
+    </script>
+ </body>
 </html>
