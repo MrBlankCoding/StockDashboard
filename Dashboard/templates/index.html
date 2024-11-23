@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/17.0.2/umd/react.development.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/17.0.2/umd/react-dom.development.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.1.12/Recharts.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8">Stock Dashboard</h1>
+        
+        <!-- Stock Search -->
+        <div class="mb-8">
+            <div class="relative">
+                <input type="text" 
+                       id="stock-search" 
+                       class="w-full p-4 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500" 
+                       placeholder="Search for a stock symbol (e.g., AAPL, GOOGL)...">
+                <div id="search-results" 
+                     class="absolute w-full bg-white mt-1 rounded-lg shadow-lg hidden z-50 max-h-64 overflow-y-auto">
+                </div>
+            </div>
+        </div>
+
+        <!-- API Rate Limit Warning -->
+        <div class="mb-8 text-yellow-800 bg-yellow-100 p-4 rounded-lg flex items-center">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <span>Note: Alpha Vantage has a rate limit of 5 API calls per minute for free tier. Please wait a few seconds between searches.</span>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading-indicator" class="hidden fixed top-4 right-4 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg">
+            Loading...
+        </div>
+
+        <!-- Dashboard Grid -->
+        <div id="dashboard-grid" 
+             class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        </div>
+    </div>
+
+    <!-- Stock Card Template -->
+    <template id="stock-card-template">
+        <div class="stock-card bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200">
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <h2 class="text-2xl font-bold stock-symbol mb-1"></h2>
+                    <p class="text-gray-600 company-name text-sm"></p>
+                </div>
+                <button class="remove-stock px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm transition-colors duration-200">
+                    Remove
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <p class="text-3xl font-bold current-price mb-1"></p>
+                    <p class="text-sm price-change"></p>
+                </div>
+                <div class="text-right">
+                    <p class="text-sm text-gray-600">
+                        Open: <span class="open-price"></span>
+                    </p>
+                    <p class="text-sm text-gray-600">
+                        High: <span class="high-price"></span>
+                    </p>
+                    <p class="text-sm text-gray-600">
+                        Low: <span class="low-price"></span>
+                    </p>
+                    <p class="text-sm text-gray-600">
+                        Prev Close: <span class="prev-close"></span>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Chart Container -->
+            <div class="stock-chart"></div>
+            
+            <div class="text-xs text-gray-500 flex justify-between items-center border-t pt-4 mt-4">
+                <span class="exchange"></span>
+                <span class="industry max-w-[50%] text-right"></span>
+            </div>
+
+            <div class="text-xs text-gray-400 text-right mt-2">
+                Last updated: <span class="last-updated"></span>
+            </div>
+        </div>
+    </template>
+
+    <script>
+        // Stock Chart Component
+        const StockChart = React.memo(({ data, symbol }) => {
+            if (!data || data.length === 0) return null;
+
+            const CustomTooltip = ({ active, payload, label }) => {
+                if (active && payload && payload.length) {
+                    return React.createElement('div', {
+                            className: 'bg-white p-2 border rounded shadow-sm'
+                        },
+                        React.createElement('p', {
+                            className: 'text-sm font-medium'
+                        }, label),
+                        React.createElement('p', {
+                            className: 'text-sm text-gray-600'
+                        }, `Price: $${payload[0].value.toFixed(2)}`)
+                    );
+                }
+                return null;
+            };
+
+            return React.createElement(
+                'div',
+                { className: 'h-48 w-full mt-4' },
+                React.createElement(
+                    Recharts.ResponsiveContainer,
+                    { width: '100%', height: '100%' },
+                    React.createElement(
+                        Recharts.LineChart,
+                        { 
+                            data: data,
+                            margin: { top: 5, right: 5, bottom: 5, left: 5 }
+                        },
+                        React.createElement(Recharts.XAxis, {
+                            dataKey: 'date',
+                            tick: { fontSize: 10 },
+                            tickFormatter: (tick) => tick.slice(5)
+                        }),
+                        React.createElement(Recharts.YAxis, {
+                            domain: ['auto', 'auto'],
+                            tick: { fontSize: 10 },
+                            tickFormatter: (tick) => `$${tick.toFixed(0)}`
+                        }),
+                        React.createElement(Recharts.Tooltip, {
+                            content: CustomTooltip
+                        }),
+                        React.createElement(Recharts.Line, {
+                            type: 'monotone',
+                            dataKey: 'price',
+                            stroke: '#2563eb',
+                            dot: false,
+                            strokeWidth: 2
+                        })
+                    )
+                )
+            );
+        });
+
+        class StockDashboard {
+            constructor() {
+                this.stocks = new Set();
+                this.updateInterval = 60000; // 60 seconds
+                this.setupEventListeners();
+                this.loadSavedStocks();
+            }
+
+            setupEventListeners() {
+                const searchInput = $('#stock-search');
+                const searchResults = $('#search-results');
+
+                searchInput.on('input', this.debounce(() => {
+                    const query = searchInput.val().trim();
+                    if (query.length > 0) {
+                        this.searchStocks(query);
+                    } else {
+                        searchResults.hide();
+                    }
+                }, 1000));
+
+                $(document).on('click', '.stock-result', (e) => {
+                    const symbol = $(e.currentTarget).data('symbol');
+                    this.addStock(symbol);
+                    searchInput.val('');
+                    searchResults.hide();
+                });
+
+                $(document).on('click', '.remove-stock', (e) => {
+                    const card = $(e.target).closest('.stock-card');
+                    const symbol = card.find('.stock-symbol').text();
+                    this.removeStock(symbol);
+                });
+
+                // Close search results when clicking outside
+                $(document).on('click', (e) => {
+                    if (!$(e.target).closest('.stock-result, #stock-search').length) {
+                        searchResults.hide();
+                    }
+                });
+            }
+
+            debounce(func, wait) {
+                let timeout;
+                return function executedFunction(...args) {
+                    const later = () => {
+                        clearTimeout(timeout);
+                        func(...args);
+                    };
+                    clearTimeout(timeout);
+                    timeout = setTimeout(later, wait);
+                };
+            }
+
+            showLoading() {
+                $('#loading-indicator').removeClass('hidden');
+            }
+
+            hideLoading() {
+                $('#loading-indicator').addClass('hidden');
+            }
+
+            async searchStocks(query) {
+                try {
+                    this.showLoading();
+                    const response = await fetch(`/api/search?q=${query}`);
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.displaySearchResults(data.results);
+                    }
+                } catch (error) {
+                    console.error('Error searching stocks:', error);
+                } finally {
+                    this.hideLoading();
+                }
+            }
+
+            displaySearchResults(results) {
+                const searchResults = $('#search-results');
+                searchResults.empty();
+
+                if (results.length === 0) {
+                    searchResults.append(
+                        $('<div>')
+                            .addClass('p-2 text-gray-500')
+                            .text('No results found')
+                    );
+                } else {
+                    results.forEach(result => {
+                        const resultElement = $('<div>')
+                            .addClass('stock-result p-3 hover:bg-gray-100 cursor-pointer border-b last:border-b-0')
+                            .data('symbol', result.symbol)
+                            .append(
+                                $('<div>')
+                                    .addClass('font-medium')
+                                    .text(result.symbol),
+                                $('<div>')
+                                    .addClass('text-sm text-gray-600')
+                                    .text(result.description)
+                            );
+                        searchResults.append(resultElement);
+                    });
+                }
+
+                searchResults.show();
+            }
+
+            async addStock(symbol) {
+                if (this.stocks.has(symbol)) return;
+
+                const template = document.getElementById('stock-card-template');
+                const clone = template.content.cloneNode(true);
+                
+                $(clone).find('.stock-symbol').text(symbol);
+                
+                $('#dashboard-grid').append(clone);
+                this.stocks.add(symbol);
+                
+                await this.updateStockData(symbol);
+                this.saveStocks();
+                
+                // Set up periodic updates for this stock
+                setInterval(() => this.updateStockData(symbol), this.updateInterval);
+            }
+
+            removeStock(symbol) {
+                const card = $(`#dashboard-grid .stock-card:has(.stock-symbol:contains('${symbol}'))`);
+                card.remove();
+                this.stocks.delete(symbol);
+                this.saveStocks();
+            }
+
+            saveStocks() {
+                localStorage.setItem('savedStocks', JSON.stringify(Array.from(this.stocks)));
+            }
+
+            loadSavedStocks() {
+                const savedStocks = localStorage.getItem('savedStocks');
+                if (savedStocks) {
+                    JSON.parse(savedStocks).forEach(symbol => this.addStock(symbol));
+                }
+            }
+
+            async updateStockData(symbol) {
+                try {
+                    this.showLoading();
+                    const response = await fetch(`/api/stock/${symbol}`);
+                    const data = await response.json();
+
+                    if (data.success) {
+                        const card = $(`#dashboard-grid .stock-card:has(.stock-symbol:contains('${symbol}'))`);
+                        const stockData = data.data;
+                        
+                        // Update card data
+                        card.find('.company-name').text(stockData.company_name);
+                        card.find('.current-price').text(`$${stockData.current_price.toFixed(2)}`);
+                        
+                        const priceChange = card.find('.price-change');
+                        const changeText = `${stockData.change >= 0 ? '+' : ''}${stockData.change.toFixed(2)} (${stockData.percent_change.toFixed(2)}%)`;
+                        priceChange.text(changeText);
+                        priceChange.removeClass('text-green-600 text-red-600');
+                        priceChange.addClass(stockData.change >= 0 ? 'text-green-600' : 'text-red-600');
+                        
+                        card.find('.open-price').text(`$${stockData.open.toFixed(2)}`);
+                        card.find('.high-price').text(`$${stockData.high.toFixed(2)}`);
+                        card.find('.low-price').text(`$${stockData.low.toFixed(2)}`);
+                        card.find('.prev-close').text(`$${stockData.prev_close.toFixed(2)}`);
+                        card.find('.exchange').text(stockData.exchange);
+                        card.find('.industry').text(stockData.industry);
+                        card.find('.last-updated').text(new Date().toLocaleTimeString());
+
+                        // Render chart
+                        const chartContainer = card.find('.stock-chart')[0];
+                        ReactDOM.render(
+                            React.createElement(StockChart, {
+                                data: stockData.historical_data,
+                                symbol: symbol
+                            }),
+                            chartContainer
+                        );
+                    }
+                } catch (error) {
+                    console.error(`Error updating ${symbol}:`, error);
+                } finally {
+                    this.hideLoading();
+                }
+            }
+        }
+
+        // Initialize dashboard when document is ready
+        $(document).ready(() => {
+            window.dashboard = new StockDashboard();
+        });
+    </script>
+</body>
+</html>
