@@ -1,28 +1,30 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from werkzeug.security import generate_password_hash, check_password_hash
 from bson import ObjectId
 from polygon import RESTClient
+from datetime import datetime, timedelta
+import yfinance as yf
+
 
 # Flask App Setup
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key'  # Change this to a secure secret key
+app.config['SECRET_KEY'] = 'your-secret-key'
 
 # MongoDB Setup
 uri = "mongodb+srv://Ethan:L0U3pJNymy9nP1Hr@stockdash.s9jnm.mongodb.net/?retryWrites=true&w=majority&appName=StockDash"
 client = MongoClient(uri, server_api=ServerApi('1'))
 mongo = client['StockDash']
 
-    
 # Flask-Login Setup
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 # Polygon API Setup
-polygon_client = RESTClient('rfyFIj2sCGjr8RhHOU5zgS6Hb7lTGl2p')  # Replace with your API key
+polygon_client = RESTClient('rfyFIj2sCGjr8RhHOU5zgS6Hb7lTGl2p')
 
 
 # User Class for Flask-Login
@@ -33,8 +35,6 @@ class User(UserMixin):
     def get_id(self):
         return str(self.user_data['_id'])
 
-
-# User Loader for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
     user_data = mongo.users.find_one({'_id': ObjectId(user_id)})
@@ -46,24 +46,23 @@ def load_user(user_id):
 def index():
     return redirect(url_for('login'))
 
-
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
 
-        # Check if user already exists
         if mongo.users.find_one({'email': email}):
             flash('Email already exists')
             return redirect(url_for('register'))
 
-        # Hash password and store user
         hashed_password = generate_password_hash(password)
         mongo.users.insert_one({
             'email': email,
             'password': hashed_password,
-            'stocks': []
+            'balance': 10000.0,  # Initial balance
+            'portfolio': {},     # Portfolio will store {symbol: {'shares': count, 'avg_price': price}}
+            'trade_history': []  # Store trade history
         })
         flash('Registration successful')
         return redirect(url_for('login'))
@@ -93,67 +92,175 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    user_stocks = current_user.user_data.get('stocks', [])
-    stock_data = []
+    user_data = mongo.users.find_one({'_id': ObjectId(current_user.get_id())})
+    portfolio = user_data.get('portfolio', {})
+    balance = user_data.get('balance', 0)
+    
+    portfolio_data = []
+    total_portfolio_value = 0
+    
+    for symbol, position in portfolio.items():
+        if position['shares'] > 0:  # Only show active positions
+            try:
+                # Try Polygon API
+                resp = polygon_client.get_previous_close_agg(symbol)
+                current_price = resp.close
+            except Exception:
+                # Fallback to Yahoo Finance
+                stock = yf.Ticker(symbol)
+                current_price = stock.history(period="1d")['Close'].iloc[-1]
 
-    # Fetch stock data for user's watchlist
-    for symbol in user_stocks:
-        try:
-            resp = polygon_client.get_previous_close_agg(symbol)
-            stock_data.append({
+            market_value = position['shares'] * current_price
+            total_portfolio_value += market_value
+            
+            portfolio_data.append({
                 'symbol': symbol,
-                'close': resp.close,
-                'high': resp.high,
-                'low': resp.low
+                'shares': position['shares'],
+                'avg_price': position['avg_price'],
+                'current_price': current_price,
+                'market_value': market_value,
+                'profit_loss': market_value - (position['shares'] * position['avg_price']),
+                'profit_loss_percent': ((current_price - position['avg_price']) / position['avg_price']) * 100
             })
-        except Exception:
-            flash(f'Error fetching data for {symbol}')
+    
+    total_value = balance + total_portfolio_value
+    net_profit = total_value - 10000  # Initial balance was 10k
+    
+    return render_template(
+        'dashboard.html',
+        portfolio=portfolio_data,
+        balance=balance,
+        total_value=total_value,
+        net_profit=net_profit,
+        net_profit_percent=(net_profit / 10000) * 100,
+        last_updated=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    )
 
-    return render_template('dashboard.html', stocks=stock_data)
-
-
-@app.route('/add_stock', methods=['POST'])
+@app.route('/get_stock_info/<symbol>')
 @login_required
-def add_stock():
-    symbol = request.form['symbol'].upper()
-
-    # Verify stock exists
+def get_stock_info(symbol):
+    symbol = symbol.upper()
     try:
-        polygon_client.get_previous_close_agg(symbol)
-    except:
-        flash('Invalid stock symbol')
-        return redirect(url_for('dashboard'))
+        # Try fetching data from Polygon
+        resp = polygon_client.get_previous_close_agg(symbol)
+        price = resp.close
+    except Exception as polygon_error:
+        # If Polygon fails, fallback to Yahoo Finance
+        try:
+            stock = yf.Ticker(symbol)
+            price = stock.history(period="1d")['Close'].iloc[-1]  # Get the last close price
+        except Exception as yf_error:
+            # If both fail, return an error
+            return jsonify({
+                'success': False,
+                'error': f"Polygon error: {polygon_error}, Yahoo Finance error: {yf_error}"
+            })
 
-    # Add stock to watchlist if not present
-    if symbol not in current_user.user_data.get('stocks', []):
-        mongo.users.update_one(
-            {'_id': ObjectId(current_user.get_id())},
-            {'$push': {'stocks': symbol}}
-        )
-        flash(f'Added {symbol} to your watchlist')
-    else:
-        flash('Stock already in watchlist')
-
-    return redirect(url_for('dashboard'))
+    return jsonify({
+        'success': True,
+        'price': price,
+        'symbol': symbol
+    })
 
 
-@app.route('/remove_stock', methods=['POST'])
+@app.route('/buy_stock', methods=['POST'])
 @login_required
-def remove_stock():
-    symbol = request.form['symbol']
+def buy_stock():
+    data = request.json
+    symbol = data['symbol'].upper()
+    shares = float(data['shares'])
+    price = float(data['price'])
+    reason = data['reason']
+    total_cost = shares * price
 
-    # Remove stock from watchlist
+    user_data = mongo.users.find_one({'_id': ObjectId(current_user.get_id())})
+    current_balance = user_data['balance']
+    
+    if total_cost > current_balance:
+        return jsonify({'success': False, 'error': 'Insufficient funds'})
+
+    portfolio = user_data.get('portfolio', {})
+    current_position = portfolio.get(symbol, {'shares': 0, 'avg_price': 0})
+    
+    # Calculate new average price
+    total_shares = current_position['shares'] + shares
+    new_avg_price = ((current_position['shares'] * current_position['avg_price']) + (shares * price)) / total_shares
+
+    # Update portfolio and balance
     mongo.users.update_one(
         {'_id': ObjectId(current_user.get_id())},
-        {'$pull': {'stocks': symbol}}
+        {
+            '$set': {
+                f'portfolio.{symbol}': {
+                    'shares': total_shares,
+                    'avg_price': new_avg_price
+                },
+                'balance': current_balance - total_cost
+            },
+            '$push': {
+                'trade_history': {
+                    'type': 'buy',
+                    'symbol': symbol,
+                    'shares': shares,
+                    'price': price,
+                    'total': total_cost,
+                    'reason': reason,
+                    'timestamp': datetime.now()
+                }
+            }
+        }
     )
-    flash(f'Removed {symbol} from your watchlist')
-    return redirect(url_for('dashboard'))
 
+    return jsonify({'success': True, 'new_balance': current_balance - total_cost})
+
+@app.route('/sell_stock', methods=['POST'])
+@login_required
+def sell_stock():
+    data = request.json
+    symbol = data['symbol'].upper()
+    shares = float(data['shares'])
+    price = float(data['price'])
+    total_value = shares * price
+
+    user_data = mongo.users.find_one({'_id': ObjectId(current_user.get_id())})
+    portfolio = user_data.get('portfolio', {})
+    
+    if symbol not in portfolio or portfolio[symbol]['shares'] < shares:
+        return jsonify({'success': False, 'error': 'Insufficient shares'})
+
+    current_shares = portfolio[symbol]['shares']
+    new_shares = current_shares - shares
+    
+    update_data = {
+        'balance': user_data['balance'] + total_value,
+    }
+
+    if new_shares > 0:
+        update_data[f'portfolio.{symbol}.shares'] = new_shares
+    else:
+        update_data[f'portfolio.{symbol}'] = None
+
+    mongo.users.update_one(
+        {'_id': ObjectId(current_user.get_id())},
+        {
+            '$set': update_data,
+            '$push': {
+                'trade_history': {
+                    'type': 'sell',
+                    'symbol': symbol,
+                    'shares': shares,
+                    'price': price,
+                    'total': total_value,
+                    'timestamp': datetime.now()
+                }
+            }
+        }
+    )
+
+    return jsonify({'success': True, 'new_balance': user_data['balance'] + total_value})
 
 # Run App
 if __name__ == '__main__':

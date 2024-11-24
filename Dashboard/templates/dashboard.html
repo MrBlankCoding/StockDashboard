@@ -1,63 +1,252 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Stock Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stock Trading Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs" defer></script>
 </head>
 <body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Header with Account Overview -->
         <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold">Stock Dashboard</h1>
-            <form action="{{ url_for('logout') }}" method="GET" class="inline">
-                <button type="submit" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
-                    Logout
-                </button>
-            </form>
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">Stock Trading Dashboard</h1>
+                <p class="text-sm text-gray-600">Last updated: {{ last_updated }}</p>
+            </div>
+            <a href="{{ url_for('logout') }}" class="bg-red-500 text-white px-4 py-2 rounded-lg">Logout</a>
         </div>
 
-        {% with messages = get_flashed_messages() %}
+        <!-- Account Summary Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-gray-700">Cash Balance</h3>
+                <p class="text-2xl font-bold">${{ "%.2f"|format(balance) }}</p>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-gray-700">Total Portfolio Value</h3>
+                <p class="text-2xl font-bold">${{ "%.2f"|format(total_value) }}</p>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-gray-700">Net Profit/Loss</h3>
+                <p class="text-2xl font-bold {% if net_profit >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                    ${{ "%.2f"|format(net_profit) }}
+                    <span class="text-sm">({{ "%.1f"|format(net_profit_percent) }}%)</span>
+                </p>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-gray-700">Goal Progress</h3>
+                <div class="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                    <div class="bg-blue-600 h-2.5 rounded-full" style="width: {{ (total_value/20000) * 100 }}%"></div>
+                </div>
+                <p class="text-sm mt-1">${{ "%.2f"|format(total_value) }} / $20,000</p>
+            </div>
+        </div>
+
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                {% for message in messages %}
-                    <div class="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded mb-4">
+                {% for category, message in messages %}
+                    <div class="{% if category == 'error' %}bg-red-100 border-red-400 text-red-700{% elif category == 'warning' %}bg-yellow-100 border-yellow-400 text-yellow-700{% else %}bg-blue-100 border-blue-400 text-blue-700{% endif %} px-4 py-3 rounded-lg mb-4 border">
                         {{ message }}
                     </div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
 
-        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
-            <h2 class="text-xl font-bold mb-4">Add Stock</h2>
-            <form action="{{ url_for('add_stock') }}" method="POST" class="flex gap-4">
-                <input type="text" name="symbol" placeholder="Enter stock symbol (e.g., AAPL)"
-                       class="shadow appearance-none border rounded py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline flex-grow"
-                       required>
-                <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-                    Add Stock
-                </button>
-            </form>
-        </div>
+        <!-- Search and Buy Stock Section -->
+        <div class="bg-white rounded-lg shadow-sm p-6 mb-8" x-data="{ 
+            showBuyModal: false,
+            symbol: '',
+            shares: 1,
+            price: 0,
+            totalCost: 0,
+            reason: '',
+            async searchStock() {
+                if (!this.symbol) return;
+                const response = await fetch(`/get_stock_info/${this.symbol}`);
+                const data = await response.json();
+                if (data.success) {
+                    this.price = data.price;
+                    this.showBuyModal = true;
+                    this.calculateTotal();
+                } else {
+                    alert('Stock not found');
+                }
+            },
+            calculateTotal() {
+                this.totalCost = (this.shares * this.price).toFixed(2);
+            },
+            async buyStock() {
+                if (!this.reason) {
+                    alert('Please provide a reason for buying');
+                    return;
+                }
+                const response = await fetch('/buy_stock', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: this.symbol,
+                        shares: this.shares,
+                        price: this.price,
+                        reason: this.reason
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert(data.error);
+                }
+            }
+        }">
+            <h2 class="text-xl font-bold mb-4 text-gray-900">Trade Stocks</h2>
+            <div class="flex gap-4">
+                <input type="text" x-model="symbol" placeholder="Enter stock symbol" class="border rounded px-4 py-2 flex-grow">
+                <button @click="searchStock()" class="bg-blue-500 text-white px-6 py-2 rounded">Search</button>
+            </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {% for stock in stocks %}
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-xl font-bold">{{ stock.symbol }}</h3>
-                    <form action="{{ url_for('remove_stock') }}" method="POST" class="inline">
-                        <input type="hidden" name="symbol" value="{{ stock.symbol }}">
-                        <button type="submit" class="text-red-500 hover:text-red-700">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </form>
-                </div>
-                <div class="space-y-2">
-                    <p class="text-gray-600">Close: ${{ "%.2f"|format(stock.close) }}</p>
-                    <p class="text-gray-600">High: ${{ "%.2f"|format(stock.high) }}</p>
-                    <p class="text-gray-600">Low: ${{ "%.2f"|format(stock.low) }}</p>
+            <!-- Buy Modal -->
+            <div x-show="showBuyModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                <div class="bg-white rounded-lg p-8 max-w-md w-full" @click.outside="showBuyModal = false">
+                    <h3 class="text-xl font-bold mb-4">Buy <span x-text="symbol.toUpperCase()"></span></h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Current Price</label>
+                            <p class="text-2xl font-bold">$<span x-text="price.toFixed(2)"></span></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Shares</label>
+                            <input type="number" x-model="shares" min="1" step="1" @input="calculateTotal" class="border rounded px-4 py-2 w-full">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Total Cost</label>
+                            <p class="text-xl font-bold">$<span x-text="totalCost"></span></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Reason for Buy</label>
+                            <textarea x-model="reason" class="border rounded px-4 py-2 w-full" rows="3"></textarea>
+                        </div>
+                        <div class="flex justify-end space-x-4">
+                            <button @click="showBuyModal = false" class="bg-gray-500 text-white px-4 py-2 rounded">Cancel</button>
+                            <button @click="buyStock()" class="bg-blue-500 text-white px-4 py-2 rounded">Confirm Buy</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-            {% endfor %}
+        </div>
+
+        <!-- Portfolio Section -->
+        <div class="bg-white rounded-lg shadow-sm p-6">
+            <h2 class="text-xl font-bold mb-4 text-gray-900">Your Portfolio</h2>
+            {% if portfolio %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Symbol</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shares</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Price</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Price</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Market Value</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Profit/Loss</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for stock in portfolio %}
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm font-medium text-gray-900">{{ stock.symbol }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">{{ "%.2f"|format(stock.shares) }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">${{ "%.2f"|format(stock.avg_price) }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">${{ "%.2f"|format(stock.current_price) }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">${{ "%.2f"|format(stock.market_value) }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm {% if stock.profit_loss >= 0 %}text-green-600{% else %}text-red-600{% endif %}">
+                                        ${{ "%.2f"|format(stock.profit_loss) }}
+                                        <span class="text-xs">({{ "%.1f"|format(stock.profit_loss_percent) }}%)</span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap" x-data="{ 
+                                    showSellModal: false,
+                                    sellShares: {{ stock.shares }},
+                                    currentPrice: {{ stock.current_price }},
+                                    maxShares: {{ stock.shares }},
+                                    symbol: '{{ stock.symbol }}',
+                                    totalValue: {{ stock.shares * stock.current_price }},
+                                    calculateTotal() {
+                                        this.totalValue = (this.sellShares * this.currentPrice).toFixed(2);
+                                    },
+                                    async sellStock() {
+                                        const response = await fetch('/sell_stock', {
+                                            method: 'POST',
+                                            headers: {
+                                                'Content-Type': 'application/json',
+                                            },
+                                            body: JSON.stringify({
+                                                symbol: this.symbol,
+                                                shares: this.sellShares,
+                                                price: this.currentPrice
+                                            })
+                                        });
+                                        const data = await response.json();
+                                        if (data.success) {
+                                            window.location.reload();
+                                        } else {
+                                            alert(data.error);
+                                        }
+                                    }
+                                }">
+                                    <button @click="showSellModal = true" class="text-red-600 hover:text-red-900">Sell</button>
+                                    
+                                    <!-- Sell Modal -->
+                                    <div x-show="showSellModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                                        <div class="bg-white rounded-lg p-8 max-w-md w-full" @click.outside="showSellModal = false">
+                                            <h3 class="text-xl font-bold mb-4">Sell {{ stock.symbol }}</h3>
+                                            <div class="space-y-4">
+                                                <div>
+                                                    <label class="block text-sm font-medium text-gray-700">Current Price</label>
+                                                    <p class="text-2xl font-bold">${{ "%.2f"|format(stock.current_price) }}</p>
+                                                </div>
+                                                <div>
+                                                    <label class="block text-sm font-medium text-gray-700">Shares to Sell</label>
+                                                    <input type="number" x-model="sellShares" :max="maxShares" min="1" step="1" @input="calculateTotal" class="border rounded px-4 py-2 w-full">
+                                                </div>
+                                                <div>
+                                                    <label class="block text-sm font-medium text-gray-700">Total Value</label>
+                                                    <p class="text-xl font-bold">$<span x-text="totalValue"></span></p>
+                                                </div>
+                                                <div class="flex justify-end space-x-4">
+                                                    <button @click="showSellModal = false" class="bg-gray-500 text-white px-4 py-2 rounded">Cancel</button>
+                                                    <button @click="sellStock()" class="bg-red-500 text-white px-4 py-2 rounded">Confirm Sell</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-12 text-gray-500">
+                    No stocks in your portfolio. Start trading above!
+                </div>
+            {% endif %}
         </div>
     </div>
 </body>
